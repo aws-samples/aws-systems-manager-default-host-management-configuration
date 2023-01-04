@@ -1,6 +1,6 @@
 # Enable AWS Systems Manager Default Host Management Configuration
 
-This repo hosts CloudFormation templates related to the AWS Management & Governance blog post:
+This repo hosts CloudFormation templates related to the AWS Cloud Operations blog post:
 
 **<Link TBD>**
 
