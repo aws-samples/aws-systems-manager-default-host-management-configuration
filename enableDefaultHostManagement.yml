@@ -1,0 +1,171 @@
+# *
+# * Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# * SPDX-License-Identifier: MIT-0
+# *
+# * Permission is hereby granted, free of charge, to any person obtaining a copy of this
+# * software and associated documentation files (the "Software"), to deal in the Software
+# * without restriction, including without limitation the rights to use, copy, modify,
+# * merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+# * permit persons to whom the Software is furnished to do so.
+# *
+# * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+# * INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+# * PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+# * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+# * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+# * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation template to check and update the service setting ssm/managed-instance/default-ec2-instance-management-role.
+#-----------------------------------------------------------
+# Parameters
+#-----------------------------------------------------------
+Parameters:
+  MainRegion:
+    Type: String
+    Description: Main region for IAM.
+    Default: us-east-1
+
+Conditions:
+  IsMainRegion: !Equals [!Ref MainRegion, !Ref AWS::Region]
+
+Resources:
+
+  #-------------------------------------------------
+  # Automation service role to enable default EC2 instance management
+  #-------------------------------------------------
+  automationServiceRolePolicy:
+    Type: AWS::IAM::Policy
+    Condition: IsMainRegion
+    Properties:
+      PolicyName: enableDefaultSSM
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - ssm:UpdateServiceSetting
+          Resource:
+          - !Sub arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:servicesetting/arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:servicesetting/ssm/managed-instance/default-ec2-instance-management-role
+          - !Sub arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:servicesetting/ssm/managed-instance/default-ec2-instance-management-role
+        - Effect: Allow
+          Action:
+          - ssm:GetServiceSetting
+          Resource:
+          - "*"
+        - Effect: Allow
+          Action:
+          - iam:PassRole
+          Resource:
+          - !GetAtt managedInstanceRole.Arn
+          Condition:
+            StringLikeIfExists:
+              iam:PassedToService: ssm.amazonaws.com
+      Roles:
+        - !Ref automationServiceRole
+
+  automationServiceRole:
+    Type: AWS::IAM::Role
+    Condition: IsMainRegion
+    Properties:
+      RoleName: AutomationServiceRole-EnableDefaultSSM
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: ssm.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+
+  #-------------------------------------------------
+  # IAM role to enable Systems Manager registration on EC2 instances
+  #-------------------------------------------------
+  managedInstanceRole:
+    Type: AWS::IAM::Role
+    Condition: IsMainRegion
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ssm.amazonaws.com
+          Action: sts:AssumeRole
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/AmazonSSMManagedEC2InstanceDefaultPolicy
+      Path: "/"
+      RoleName: AWSSystemsManagerDefaultEC2InstanceManagementRole
+
+  #-------------------------------------------------
+  # Automation runbook to update service setting for default EC2 instance management
+  #-------------------------------------------------
+  automationRunbookEnableDefaultSSM:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Automation
+      Content:
+        description: >-
+          This document updates the Systems Manager service setting `default-ec2-instance-management-role`.
+        schemaVersion: '0.3'
+        assumeRole: '{{ AutomationAssumeRole }}'
+        parameters:
+          AutomationAssumeRole:
+            type: 'AWS::IAM::Role::Arn'
+            description: (Required) The ARN of the role that allows Automation to perform the actions on your behalf.
+            default: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/AutomationServiceRole-EnableDefaultSSM
+          DefaultEC2InstanceManagementRoleName:
+            type: String
+            description: (Required) The name of the default EC2 instance management role.
+            default: AWSSystemsManagerDefaultEC2InstanceManagementRole
+        mainSteps:
+          - name: checkExistingServiceSetting
+            action: aws:executeAwsApi
+            onFailure: Abort
+            inputs:
+              Service: ssm
+              Api: GetServiceSetting
+              SettingId: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:servicesetting/ssm/managed-instance/default-ec2-instance-management-role
+            outputs:
+            - Name: ServiceSettingValue
+              Type: String
+              Selector: $.ServiceSetting.SettingValue
+          - name: branchOnSetting
+            action: aws:branch
+            isEnd: true
+            inputs:
+              Choices:
+              - NextStep: updateServiceSetting
+                Not:
+                  Variable: '{{ checkExistingServiceSetting.ServiceSettingValue }}'
+                  StringEquals: '{{ DefaultEC2InstanceManagementRoleName }}'
+          - name: updateServiceSetting
+            action: aws:executeAwsApi
+            onFailure: Abort
+            inputs:
+              Service: ssm
+              Api: UpdateServiceSetting
+              SettingId: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:servicesetting/ssm/managed-instance/default-ec2-instance-management-role
+              SettingValue: '{{ DefaultEC2InstanceManagementRoleName }}'
+          - name: confirmServiceSetting
+            action: aws:executeAwsApi
+            onFailure: Abort
+            inputs:
+              Service: ssm
+              Api: GetServiceSetting
+              SettingId: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:servicesetting/ssm/managed-instance/default-ec2-instance-management-role
+            outputs:
+            - Name: ServiceSetting
+              Type: StringMap
+              Selector: $.ServiceSetting
+
+  updateDefaultEC2InstanceManagementAssociation:
+    Type: AWS::SSM::Association
+    Properties:
+      AssociationName: EnableDefaultEC2InstanceManagement
+      Name: !Ref automationRunbookEnableDefaultSSM
+      WaitForSuccessTimeoutSeconds: 300
+      # Optionally, you can add a schedule to confirm the setting is in place periodically
+      #ScheduleExpression: rate(7 days)
