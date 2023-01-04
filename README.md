@@ -2,7 +2,7 @@
 
 This repo hosts CloudFormation templates related to the AWS Cloud Operations blog post:
 
-**<Link TBD>**
+**Link TBD**
 
 For details on how to use the corresponding CloudFormation templates, refer to the blog post.
 
