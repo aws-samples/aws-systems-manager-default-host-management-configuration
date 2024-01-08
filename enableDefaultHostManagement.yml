@@ -18,26 +18,13 @@
 ---
 AWSTemplateFormatVersion: '2010-09-09'
 Description: AWS CloudFormation template to check and update the service setting ssm/managed-instance/default-ec2-instance-management-role.
-#-----------------------------------------------------------
-# Parameters
-#-----------------------------------------------------------
-Parameters:
-  MainRegion:
-    Type: String
-    Description: Main region for creating required IAM roles.
-    Default: us-east-1
-
-Conditions:
-  IsMainRegion: !Equals [!Ref MainRegion, !Ref AWS::Region]
 
 Resources:
-
   #-------------------------------------------------
   # Automation service role to enable default EC2 instance management
   #-------------------------------------------------
   automationServiceRolePolicy:
     Type: AWS::IAM::Policy
-    Condition: IsMainRegion
     Properties:
       PolicyName: enableDefaultSSM
       PolicyDocument:
@@ -67,9 +54,8 @@ Resources:
 
   automationServiceRole:
     Type: AWS::IAM::Role
-    Condition: IsMainRegion
     Properties:
-      RoleName: AutomationServiceRole-EnableDefaultSSM
+      RoleName: !Sub AutomationServiceRole-EnableDefaultSSM-${AWS::Region}
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -85,7 +71,6 @@ Resources:
   #-------------------------------------------------
   managedInstanceRole:
     Type: AWS::IAM::Role
-    Condition: IsMainRegion
     Properties:
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
@@ -98,7 +83,7 @@ Resources:
       ManagedPolicyArns:
       - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedEC2InstanceDefaultPolicy
       Path: "/"
-      RoleName: AWSSystemsManagerDefaultEC2InstanceManagementRole
+      RoleName: !Sub AWSSystemsManagerDefaultEC2InstanceManagementRole-${AWS::Region}
 
   #-------------------------------------------------
   # Automation runbook to update service setting for default EC2 instance management
@@ -116,11 +101,11 @@ Resources:
           AutomationAssumeRole:
             type: 'AWS::IAM::Role::Arn'
             description: (Required) The ARN of the role that allows Automation to perform the actions on your behalf.
-            default: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/AutomationServiceRole-EnableDefaultSSM
+            default: !GetAtt automationServiceRole.Arn
           DefaultEC2InstanceManagementRoleName:
             type: String
             description: (Required) The name of the default EC2 instance management role.
-            default: AWSSystemsManagerDefaultEC2InstanceManagementRole
+            default: !Ref managedInstanceRole
         mainSteps:
           - name: checkExistingServiceSetting
             action: aws:executeAwsApi
