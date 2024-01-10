@@ -32,15 +32,10 @@ Resources:
         Statement:
         - Effect: Allow
           Action:
+          - ssm:GetServiceSetting
           - ssm:UpdateServiceSetting
           Resource:
-          - !Sub arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:servicesetting/arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:servicesetting/ssm/managed-instance/default-ec2-instance-management-role
           - !Sub arn:${AWS::Partition}:ssm:*:${AWS::AccountId}:servicesetting/ssm/managed-instance/default-ec2-instance-management-role
-        - Effect: Allow
-          Action:
-          - ssm:GetServiceSetting
-          Resource:
-          - "*"
         - Effect: Allow
           Action:
           - iam:PassRole
