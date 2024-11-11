@@ -85,6 +85,7 @@ Resources:
   #-------------------------------------------------
   automationRunbookEnableDefaultSSM:
     Type: AWS::SSM::Document
+    DependsOn: automationServiceRole
     Properties:
       DocumentType: Automation
       Content:
@@ -147,6 +148,5 @@ Resources:
     Properties:
       AssociationName: EnableDefaultEC2InstanceManagement
       Name: !Ref automationRunbookEnableDefaultSSM
-      WaitForSuccessTimeoutSeconds: 300
       # Optionally, you can add a schedule to confirm the setting is in place periodically
       #ScheduleExpression: rate(7 days)
